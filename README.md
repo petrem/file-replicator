@@ -160,6 +160,8 @@ The unit tests use this degenerate approach to test the tool.
 
 ## MacOS (darwin)
 
+Currently tests expect a working Gnu tar (or gtar) available and will use that as both receiver and sender.
+
     ================================================ test session starts =================================================
     platform darwin -- Python 3.7.2, pytest-3.10.1, py-1.7.0, pluggy-0.8.0 -- /Users/peter/.local/share/virtualenvs/fr/bin/python
     cachedir: .pytest_cache
