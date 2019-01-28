@@ -166,11 +166,6 @@ def main(
                 src_dir, copy_file, use_gitignore=gitignore, debugging=debugging
             )
         if replicate_on_change:
-            while replicate_files_on_change(
+            replicate_files_on_change(
                 src_dir, copy_file, use_gitignore=gitignore, debugging=debugging
-            ):
-                click.secho(
-                    "Restarting watchers after detecting a new directory. Consider restarting!",
-                    fg="red",
-                    bold="true",
-                )
+            )
