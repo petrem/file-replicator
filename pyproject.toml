@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "file-replicator"
-version = "0.1.10"
+version = "0.2.0"
 license = "MIT"
 authors = ["Timothy Corbett-Clark <timothy.corbettclark@gmail.com>"]
 description = "Replicate files to another computer for remote development"
@@ -11,9 +11,9 @@ homepage = "https://github.com/tcorbettclark/file-replicator"
 
 [tool.poetry.dependencies]
 python = "^3.6"
-inotify = "^0.2.10"
 click = "^7.0"
 pathspec = "^0.5.9"
+watchdog = "^0.9.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^3.0"

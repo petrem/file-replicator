@@ -12,7 +12,7 @@ Tested and known to work between two Linux machines. Support for developing on m
 Dependencies are:
 * Python 3 and some Python packages on the development machine.
 * Ability to run a shell (bash or bash-like) on the remote machine with connected `stdin`.
-* The tar utility (the full version, not the busybox version) on both machines.
+* The gnu tar utility (the full version, not the busybox version) on both machines.
 
 Note that nothing is installed remotely, there are no ports to open, and the remote user only needs
 the ability to create the files and directories at the specified location.
@@ -71,7 +71,7 @@ See help with `file-replicate --help`:
       The CONNECTION_COMMAND must result in a running instance of bash ready to
       receive commands on stdin.
 
-      Example CONNECTION_COMMANDS include:
+      Example CONNECTION_COMMANDs include:
 
           ssh some.host.com bash
 
@@ -107,9 +107,15 @@ See help with `file-replicate --help`:
                                       replicate cycle.
       --gitignore / --no-gitignore    Use .gitignore (or not) to filter files.
       --debugging                     Print debugging information.
+      --local-tar-gnu                 Local tar is gnu tar.
+      --local-tar-bsd                 Local tar is bsd tar.
+      --local-tar-gnu-prefix          Use gtar as gnu tar locally.
+      --local-tar-detect              Attempt to detect local tar flavor.
+      --remote-tar-gnu                Remote tar is gnu tar
+      --remote-tar-gnu-prefix         Use gtar as gnu tar remotely.
+      --remote-tar-detect             Attempt to detect remote tar flavor.
       --version                       Show the version and exit.
       --help                          Show this message and exit.
-
 
 For example, to replicate files from local directory `my_project_dir` to directory
 `/home/code/my_project_dir` on remote machine called `my.server.com`:
@@ -133,15 +139,9 @@ but replicates into the local `/tmp/my_project_dir`:
 
 The unit tests use this degenerate approach to test the tool.
 
-# Limitations
-
-Due to limitations with inotify (race conditions around watching for changes in newly created directories), it
-is possible that the watching-for-changes phase becomes out of step. In which case, just restart the whole program.
-The tool includes some self-restarting behaviour, but ultimately a full restart may sometimes be needed.
-
-Information printed to stdout indicates when this happens.
-
 # Tests
+
+## Linux
 
     ============================= test session starts ==============================
     platform linux -- Python 3.6.7, pytest-3.10.1, py-1.7.0, pluggy-0.8.0 -- /home/tcorbettclark/.cache/pypoetry/virtualenvs/file-replicator-py3.6/bin/python
@@ -157,6 +157,41 @@ Information printed to stdout indicates when this happens.
     tests/test_lib.py::test_detect_and_copy_modified_file PASSED             [ 87%]
     tests/test_lib.py::test_detect_and_copy_new_file_in_new_directories PASSED [100%]
     =========================== 8 passed in 3.95 seconds ===========================
+
+## MacOS (darwin)
+
+    ================================================ test session starts =================================================
+    platform darwin -- Python 3.7.2, pytest-3.10.1, py-1.7.0, pluggy-0.8.0 -- /Users/peter/.local/share/virtualenvs/fr/bin/python
+    cachedir: .pytest_cache
+    rootdir: /Users/peter/devel/file-replicator, inifile:
+    collected 18 items
+
+    tests/test_lib.py::test_empty_directories_are_copied PASSED                                                    [  5%]
+    tests/test_lib.py::test_copy_one_file PASSED                                                                   [ 11%]
+    tests/test_lib.py::test_copy_file_with_unusual_characters_in_name PASSED                                       [ 16%]
+    tests/test_lib.py::test_make_missing_parent_directories PASSED                                                 [ 22%]
+    tests/test_lib.py::test_replicate_all_files PASSED                                                             [ 27%]
+    tests/test_lib.py::test_detect_and_copy_new_file PASSED                                                        [ 33%]
+    tests/test_lib.py::test_detect_and_copy_modified_file PASSED                                                   [ 38%]
+    tests/test_lib.py::test_detect_and_copy_new_file_in_new_directories PASSED                                     [ 44%]
+    tests/test_tar_adapter.py::test_gnu_tar_adapter[] PASSED                                                       [ 50%]
+    tests/test_tar_adapter.py::test_gnu_tar_adapter[g] PASSED                                                      [ 55%]
+    tests/test_tar_adapter.py::test_bsd_tar_adapter PASSED                                                         [ 61%]
+    tests/test_tar_adapter.py::test_detect_real_local_tar PASSED                                                   [ 66%]
+    tests/test_tar_adapter.py::test_detect_tar[mock_tar0-GnuTarAdapter] PASSED                                     [ 72%]
+    tests/test_tar_adapter.py::test_detect_tar[mock_tar1-GnuTarAdapter] PASSED                                     [ 77%]
+    tests/test_tar_adapter.py::test_detect_tar[mock_tar2-BsdTarAdapter] PASSED                                     [ 83%]
+    tests/test_tar_adapter.py::test_detect_tar[mock_tar3-BusyBoxTarAdapter] PASSED                                 [ 88%]
+    tests/test_tar_adapter.py::test_detect_tar[mock_tar4-NoneType] PASSED                                          [ 94%]
+    tests/test_tar_adapter.py::test_no_tar_cmd PASSED                                                              [100%]
+
+    ================================================== warnings summary ==================================================
+    /Users/peter/.local/share/virtualenvs/fr/lib/python3.7/site-packages/watchdog/utils/bricks.py:175
+      /Users/peter/.local/share/virtualenvs/fr/lib/python3.7/site-packages/watchdog/utils/bricks.py:175: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated, and in 3.8 it will stop working
+        class OrderedSet(collections.MutableSet):
+
+    -- Docs: https://docs.pytest.org/en/latest/warnings.html
+    ======================================= 18 passed, 1 warnings in 4.03 seconds ========================================
 
 # Contributions
 
