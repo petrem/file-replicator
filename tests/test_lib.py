@@ -5,7 +5,18 @@ import shutil
 import tempfile
 import threading
 
+import pytest
+
 from file_replicator.lib import *
+from file_replicator.tar_adapter import detect_local_tar, GnuTarAdapter
+
+
+@pytest.fixture
+def local_tar():
+    acceptable = (GnuTarAdapter(), GnuTarAdapter(prefix="g"))
+    tar = detect_local_tar(acceptable=acceptable)
+    assert tar is not None
+    return tar
 
 
 @contextlib.contextmanager
@@ -32,20 +43,24 @@ def assert_file_contains(filename, text):
         assert f.read() == text
 
 
-def test_empty_directories_are_copied():
+def test_empty_directories_are_copied(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
         os.makedirs(src_dir)
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             pass
         assert list(os.listdir(src_dir)) == []
         assert list(os.listdir(dest_parent_dir)) == ["test"]
 
 
-def test_copy_one_file():
+def test_copy_one_file(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             make_test_file(src_dir, "test_file.txt", "hello")
             assert_file_contains(os.path.join(src_dir, "test_file.txt"), "hello")
             copy_file(os.path.join(src_dir, "test_file.txt"))
@@ -54,10 +69,12 @@ def test_copy_one_file():
         )
 
 
-def test_copy_file_with_unusual_characters_in_name():
+def test_copy_file_with_unusual_characters_in_name(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             make_test_file(src_dir, "test ~$@%-file.txt", "hello")
             assert_file_contains(os.path.join(src_dir, "test ~$@%-file.txt"), "hello")
             copy_file(os.path.join(src_dir, "test ~$@%-file.txt"))
@@ -66,10 +83,12 @@ def test_copy_file_with_unusual_characters_in_name():
         )
 
 
-def test_make_missing_parent_directories():
+def test_make_missing_parent_directories(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             make_test_file(src_dir, "a/b/c/test_file.txt", "hello")
             assert_file_contains(os.path.join(src_dir, "a/b/c/test_file.txt"), "hello")
             copy_file(os.path.join(src_dir, "a/b/c/test_file.txt"))
@@ -78,18 +97,20 @@ def test_make_missing_parent_directories():
         )
 
 
-def test_replicate_all_files():
+def test_replicate_all_files(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
         make_test_file(src_dir, "a.txt", "hello")
         make_test_file(src_dir, "b/c.txt", "goodbye")
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             replicate_all_files(src_dir, copy_file)
         assert_file_contains(os.path.join(src_dir, "a.txt"), "hello")
         assert_file_contains(os.path.join(src_dir, "b/c.txt"), "goodbye")
 
 
-def test_detect_and_copy_new_file():
+def test_detect_and_copy_new_file(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
 
@@ -108,7 +129,9 @@ def test_detect_and_copy_new_file():
 
         # Watch for changes and copy files, and stop after short while of inactvitiy.
         # The second file (see above) should be created during this internval.
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             while timer.is_alive():
                 while replicate_files_on_change(src_dir, copy_file, timeout=0.2):
                     pass
@@ -123,7 +146,7 @@ def test_detect_and_copy_new_file():
         assert_file_contains(os.path.join(dest_parent_dir, "test/b.txt"), "goodbye")
 
 
-def test_detect_and_copy_modified_file():
+def test_detect_and_copy_modified_file(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
 
@@ -142,7 +165,9 @@ def test_detect_and_copy_modified_file():
 
         # Watch for changes and copy files, and stop after short while of inactvitiy.
         # The second file (see above) should be created during this internval.
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             while timer.is_alive():
                 while replicate_files_on_change(src_dir, copy_file, timeout=0.2):
                     pass
@@ -155,7 +180,7 @@ def test_detect_and_copy_modified_file():
         assert_file_contains(os.path.join(dest_parent_dir, "test/a.txt"), "hello again")
 
 
-def test_detect_and_copy_new_file_in_new_directories():
+def test_detect_and_copy_new_file_in_new_directories(local_tar):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
 
@@ -176,7 +201,9 @@ def test_detect_and_copy_new_file_in_new_directories():
 
         # Watch for changes and copy files, and stop after short while of inactvitiy.
         # The second file (see above) should be created during this internval.
-        with make_file_replicator(src_dir, dest_parent_dir, ("bash",)) as copy_file:
+        with make_file_replicator(
+            local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
+        ) as copy_file:
             while timer.is_alive():
                 while replicate_files_on_change(src_dir, copy_file, timeout=0.2):
                     pass

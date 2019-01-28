@@ -5,6 +5,7 @@ import click
 import file_replicator
 
 from .lib import make_file_replicator, replicate_all_files, replicate_files_on_change
+from .tar_adapter import *
 
 
 @click.command()
@@ -35,6 +36,50 @@ from .lib import make_file_replicator, replicate_all_files, replicate_files_on_c
 @click.option(
     "--debugging", is_flag=True, default=False, help="Print debugging information."
 )
+@click.option(
+    "--local-tar-gnu",
+    "local_tar_fn",
+    flag_value=GnuTarAdapter,
+    help="Local tar is gnu tar.",
+)
+@click.option(
+    "--local-tar-bsd",
+    "local_tar_fn",
+    flag_value=BsdTarAdapter,
+    help="Local tar is bsd tar.",
+)
+@click.option(
+    "--local-tar-gnu-prefix",
+    "local_tar_fn",
+    flag_value=lambda: GnuTarAdapter(prefix="g"),
+    help="Use gtar as gnu tar locally.",
+)
+@click.option(
+    "--local-tar-detect",
+    "local_tar_fn",
+    flag_value=detect_local_tar,
+    default=True,
+    help="Attempt to detect local tar flavor.",
+)
+@click.option(
+    "--remote-tar-gnu",
+    "remote_tar_fn",
+    flag_value=lambda cmd: GnuTarAdapter(),
+    default=True,
+    help="Remote tar is gnu tar",
+)
+@click.option(
+    "--remote-tar-gnu-prefix",
+    "remote_tar_fn",
+    flag_value=lambda cmd: GnuTarAdapter(prefix="g"),
+    help="Use gtar as gnu tar remotely.",
+)
+@click.option(
+    "--remote-tar-detect",
+    "remote_tar_fn",
+    flag_value=lambda cmd: detect_remote_tar(cmd),
+    help="Attempt to detect remote tar flavor.",
+)
 @click.version_option(version=file_replicator.__version__)
 def main(
     src_dir,
@@ -45,6 +90,8 @@ def main(
     replicate_on_change,
     gitignore,
     debugging,
+    local_tar_fn,
+    remote_tar_fn,
 ):
     """Replicate files to another computer e.g. for remote development.
 
@@ -92,13 +139,27 @@ def main(
     if not os.path.exists(src_dir) or not os.path.isdir(src_dir):
         raise click.UsageError("The source destination must exist and be a directory.")
 
+    local_tar = local_tar_fn()
+    remote_tar = remote_tar_fn(connection_command)
+    if debugging:
+        print(f"Local tar: {local_tar}")
+        print(f"Remote tar: {remote_tar}")
+    if not isinstance(remote_tar, GnuTarAdapter):
+        click.UsageError("Cannot use non-gnu remote tar!")
+
     if clean_out_first:
         click.secho(
             "Clearing out all destination files first!", fg="green", bold="true"
         )
 
     with make_file_replicator(
-        src_dir, dest_parent_dir, connection_command, clean_out_first=clean_out_first, debugging=debugging
+        local_tar,
+        remote_tar,
+        src_dir,
+        dest_parent_dir,
+        connection_command,
+        clean_out_first=clean_out_first,
+        debugging=debugging,
     ) as copy_file:
         if with_initial_replication:
             replicate_all_files(

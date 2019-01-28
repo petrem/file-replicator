@@ -1,11 +1,13 @@
 import contextlib
 import os.path
-import shutil
 import subprocess
 import time
 
-import inotify.adapters
 import pathspec
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+from watchdog.utils import has_attribute, unicode_paths
+
 
 __all__ = ["make_file_replicator", "replicate_all_files", "replicate_files_on_change"]
 
@@ -21,13 +23,15 @@ fi
 mkdir -p {dest_dir}
 cd {dest_dir}
 while true; do
-    tar --no-same-owner --extract --verbose
-done
+    {receiver_tar}
+done 2>/dev/null
 """
 
 
 @contextlib.contextmanager
 def make_file_replicator(
+    local_tar,
+    remote_tar,
     src_dir,
     dest_parent_dir,
     bash_connection_command,
@@ -50,7 +54,9 @@ def make_file_replicator(
 
     # Get the remote end up and running waiting for tar files.
     receiver_code = RECEIVER_CODE.format(
-        dest_dir=dest_dir, clean_out_first=str(clean_out_first).lower()
+        dest_dir=dest_dir,
+        clean_out_first=str(clean_out_first).lower(),
+        receiver_tar=remote_tar.receiver_cmd_str(),
     )
     p.stdin.write(receiver_code.encode())
     p.stdin.flush()
@@ -61,13 +67,7 @@ def make_file_replicator(
         if debugging:
             print(f"Sending {src_filename}...")
         result = subprocess.run(
-            [
-                "tar",
-                "--create",
-                rel_src_filename,
-                "--to-stdout",
-                "--ignore-failed-read",
-            ],
+            local_tar.sender_cmd(rel_src_filename),
             cwd=src_dir,
             check=True,
             stdout=p.stdin,
@@ -106,37 +106,87 @@ def replicate_all_files(src_dir, copy_file, use_gitignore=True, debugging=False)
             copy_file(os.path.join(src_dir, filename))
 
 
+class CopyFileEventHandler(FileSystemEventHandler):
+    """A watchdog.FileSystemEventHandler that copies files using copy_file()."""
+
+    def __init__(self, copy_file, debugging=False):
+        self.copy_file = copy_file
+        self.debugging = debugging
+        self.last_event_timestamp = time.time()
+
+    def on_any_event(self, event):
+        self.last_event_timestamp = time.time()
+        if self.debugging:
+            print(f"Detected change: {event.key}")
+
+        if event.event_type == "deleted":
+            return
+        if event.is_directory and event.event_type == "modified":
+            return
+        if event.event_type == "moved":
+            self.copy_file(event.dest_path)
+        else:
+            self.copy_file(event.src_path)
+
+
+class GitIgnoreCopyFileEventHandler(CopyFileEventHandler):
+    def __init__(self, copy_file, ignore_spec, debugging=False):
+        super().__init__(copy_file, debugging)
+        self.spec = ignore_spec
+
+    def dispatch(self, event):
+        if event.src_path and self.spec.match_file(
+            unicode_paths.decode(event.src_path)
+        ):
+            if self.debugging:
+                print(f"Ignoring source change on {event.src_path}")
+            return
+        if has_attribute(event, "dest_path") and self.spec.match_file(
+            unicode_paths.decode(event.dest_path)
+        ):
+            if self.debugging:
+                print(f"Ignoring destination change on {event.dest_path}")
+            return
+        super().dispatch(event)
+
+
+class NoChangeTimeoutError(Exception):
+    pass
+
+
+def raise_if_timeout(last_change, timeout):
+    elapsed = time.time() - last_change
+    if elapsed > timeout:
+        raise NoChangeTimeoutError(f"No changes detected for {elapsed} seconds.")
+
+
 def replicate_files_on_change(
     src_dir, copy_file, timeout=None, use_gitignore=True, debugging=False
 ):
     """Wait for changes to files in src_dir and copy with copy_file().
 
     If provided, the timeout indicates when to return after that many seconds of no change.
-
-    This is an imperfect solution because there are seemingly unavoidable race conditions
-    when watching for file changes or additions and new directories are involved.
-
-    Returns True to indicate that new directories have been added and the function should
-    be called again. Otherwise returns False.
-
     """
-    please_call_me_again = False
-    i = inotify.adapters.InotifyTree(src_dir)
-    spec = get_pathspec(src_dir, use_gitignore)
-    for event in i.event_gen(yield_nones=False, timeout_s=timeout):
-        (_, type_names, path, filename) = event
-        full_path = os.path.abspath(os.path.join(path, filename))
-        rel_to_src_dir_path = os.path.relpath(full_path, src_dir)
+    src_dir = os.path.abspath(src_dir)
+    if use_gitignore:
+        spec = get_pathspec(src_dir, use_gitignore)
+        event_handler = GitIgnoreCopyFileEventHandler(
+            copy_file, spec, debugging=debugging
+        )
+    else:
+        event_handler = CopyFileEventHandler(copy_file, debugging=debugging)
+    observer = Observer()
+    observer.schedule(event_handler, src_dir, recursive=True)
+    if debugging:
+        print("Starting observer")
+    observer.start()
+    try:
+        while True:
+            if timeout:
+                raise_if_timeout(event_handler.last_event_timestamp, timeout)
+            time.sleep(0.5)
+    except (KeyboardInterrupt, NoChangeTimeoutError) as e:
+        observer.stop()
         if debugging:
-            print(f"Detected change: {full_path} {type_names}")
-        if not spec.match_file(rel_to_src_dir_path):
-            if "IN_CREATE" in type_names and "IN_ISDIR" in type_names:
-                # Race condition danger because a new directory was created (see warning on https://pypi.org/project/inotify).
-                # Wait a short while for things to settle, then replicate the new directory, then start the watchers again.
-                time.sleep(0.5)
-                replicate_all_files(full_path, copy_file)
-                please_call_me_again = True
-                break
-            elif "IN_CLOSE_WRITE" in type_names:
-                copy_file(full_path)
-    return please_call_me_again
+            print("Exitting on {e}")
+    observer.join()
