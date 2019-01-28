@@ -160,7 +160,12 @@ def raise_if_timeout(last_change, timeout):
 
 
 def replicate_files_on_change(
-    src_dir, copy_file, timeout=None, use_gitignore=True, debugging=False
+    src_dir,
+    copy_file,
+    timeout=None,
+    use_gitignore=True,
+    debugging=False,
+    notify_observer_up=None,
 ):
     """Wait for changes to files in src_dir and copy with copy_file().
 
@@ -179,6 +184,8 @@ def replicate_files_on_change(
     if debugging:
         print("Starting observer")
     observer.start()
+    if notify_observer_up is not None:
+        notify_observer_up()
     try:
         while True:
             if timeout:

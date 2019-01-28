@@ -119,7 +119,6 @@ def test_detect_and_copy_new_file(local_tar):
 
         # Make another file in a short while (after the watcher has started).
         timer = threading.Timer(0.1, make_test_file, args=(src_dir, "b.txt", "goodbye"))
-        timer.start()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -132,9 +131,9 @@ def test_detect_and_copy_new_file(local_tar):
         with make_file_replicator(
             local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
         ) as copy_file:
-            while timer.is_alive():
-                while replicate_files_on_change(src_dir, copy_file, timeout=0.2):
-                    pass
+            replicate_files_on_change(
+                src_dir, copy_file, timeout=0.2, notify_observer_up=timer.start
+            )
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -144,6 +143,8 @@ def test_detect_and_copy_new_file(local_tar):
 
         # Double check that contents is correct too.
         assert_file_contains(os.path.join(dest_parent_dir, "test/b.txt"), "goodbye")
+
+        timer.join()
 
 
 def test_detect_and_copy_modified_file(local_tar):
@@ -157,7 +158,6 @@ def test_detect_and_copy_modified_file(local_tar):
         timer = threading.Timer(
             0.1, make_test_file, args=(src_dir, "a.txt", "hello again")
         )
-        timer.start()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -168,9 +168,9 @@ def test_detect_and_copy_modified_file(local_tar):
         with make_file_replicator(
             local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
         ) as copy_file:
-            while timer.is_alive():
-                while replicate_files_on_change(src_dir, copy_file, timeout=0.2):
-                    pass
+            replicate_files_on_change(
+                src_dir, copy_file, timeout=0.2, notify_observer_up=timer.start
+            )
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -191,7 +191,6 @@ def test_detect_and_copy_new_file_in_new_directories(local_tar):
         timer = threading.Timer(
             0.1, make_test_file, args=(src_dir, "a/b/c/d/e/a.txt", "hello again")
         )
-        timer.start()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -204,9 +203,9 @@ def test_detect_and_copy_new_file_in_new_directories(local_tar):
         with make_file_replicator(
             local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
         ) as copy_file:
-            while timer.is_alive():
-                while replicate_files_on_change(src_dir, copy_file, timeout=0.2):
-                    pass
+            replicate_files_on_change(
+                src_dir, copy_file, timeout=0.2, notify_observer_up=timer.start
+            )
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
