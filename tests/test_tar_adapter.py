@@ -1,13 +1,13 @@
-from abc import ABCMeta, abstractmethod
 import os
+from abc import ABCMeta, abstractmethod
 from pathlib import Path
 
 import pytest
 
 from file_replicator.tar_adapter import (
-    GnuTarAdapter,
     BsdTarAdapter,
     BusyBoxTarAdapter,
+    GnuTarAdapter,
     detect_local_tar,
     detect_remote_tar,
 )

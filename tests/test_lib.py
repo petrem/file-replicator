@@ -8,7 +8,7 @@ import threading
 import pytest
 
 from file_replicator.lib import *
-from file_replicator.tar_adapter import detect_local_tar, GnuTarAdapter
+from file_replicator.tar_adapter import GnuTarAdapter, detect_local_tar
 
 
 @pytest.fixture

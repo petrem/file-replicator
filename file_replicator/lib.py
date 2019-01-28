@@ -8,7 +8,6 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.utils import has_attribute, unicode_paths
 
-
 __all__ = ["make_file_replicator", "replicate_all_files", "replicate_files_on_change"]
 
 
