@@ -149,14 +149,14 @@ class GitIgnoreCopyFileEventHandler(CopyFileEventHandler):
         super().dispatch(event)
 
 
-class NoChangeTimeoutError(Exception):
+class NoChangeTimeout(Exception):
     pass
 
 
 def raise_if_timeout(last_change, timeout):
     elapsed = time.time() - last_change
     if elapsed > timeout:
-        raise NoChangeTimeoutError(f"No changes detected for {elapsed} seconds.")
+        raise NoChangeTimeout(f"No changes detected for {elapsed} seconds.")
 
 
 def replicate_files_on_change(
@@ -191,8 +191,8 @@ def replicate_files_on_change(
             if timeout:
                 raise_if_timeout(event_handler.last_event_timestamp, timeout)
             time.sleep(0.5)
-    except (KeyboardInterrupt, NoChangeTimeoutError) as e:
+    except (KeyboardInterrupt, NoChangeTimeout) as e:
         observer.stop()
         if debugging:
-            print("Exitting on {e}")
+            print(f"Exitting on {type(e).__name__}: {e}")
     observer.join()
