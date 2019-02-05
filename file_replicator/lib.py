@@ -153,10 +153,17 @@ class NoChangeTimeout(Exception):
     pass
 
 
+class ConditionalTermination(Exception):
+    pass
+
+
 def raise_if_timeout(last_change, timeout):
     elapsed = time.time() - last_change
     if elapsed > timeout:
         raise NoChangeTimeout(f"No changes detected for {elapsed} seconds.")
+
+
+TAIL_TIMEOUT = 2
 
 
 def replicate_files_on_change(
@@ -165,12 +172,14 @@ def replicate_files_on_change(
     timeout=None,
     use_gitignore=True,
     debugging=False,
-    notify_observer_up=None,
+    observer_up_event=None,
+    terminate_event=None,
 ):
     """Wait for changes to files in src_dir and copy with copy_file().
 
     If provided, the timeout indicates when to return after that many seconds of no change.
     """
+    print("debug: replicate on change start")
     src_dir = os.path.abspath(src_dir)
     if use_gitignore:
         spec = get_pathspec(src_dir, use_gitignore)
@@ -184,15 +193,30 @@ def replicate_files_on_change(
     if debugging:
         print("Starting observer")
     observer.start()
-    if notify_observer_up is not None:
-        notify_observer_up()
+    if observer_up_event is not None:
+        while not observer.is_alive():
+            pass
+        # wait for event listeners to settle
+        time.sleep(0.5)
+        observer_up_event.set()
+        print("notified observer up")
     try:
         while True:
+            time.sleep(0.5)
             if timeout:
                 raise_if_timeout(event_handler.last_event_timestamp, timeout)
-            time.sleep(0.5)
-    except (KeyboardInterrupt, NoChangeTimeout) as e:
-        observer.stop()
+            if terminate_event and terminate_event.is_set():
+                raise ConditionalTermination("Termination condition was set.")
+    except (KeyboardInterrupt, NoChangeTimeout, ConditionalTermination) as e:
         if debugging:
             print(f"Exitting on {type(e).__name__}: {e}")
-    observer.join()
+    finally:
+        now = time.time()
+        # still, dispatch the existing change events before we part ways
+        while time.time() - now < TAIL_TIMEOUT and not observer.event_queue.empty():
+            print("flushing events")
+            observer.dispatch_events(observer.event_queue, observer.timeout)
+        left = now + TAIL_TIMEOUT - time.time()
+        observer.stop()
+        observer.join(timeout=max(0, left))
+        print(f"debug: finished replicate on change with {left} left")

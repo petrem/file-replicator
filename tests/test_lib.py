@@ -1,8 +1,10 @@
+from collections import namedtuple
 import contextlib
 import os
 import os.path
 import shutil
 import tempfile
+import time
 import threading
 
 import pytest
@@ -29,12 +31,20 @@ def temp_directory():
         shutil.rmtree(directory)
 
 
-def make_test_file(src_dir, relative_path, text):
-    """Create a test file of text."""
+def make_test_file(src_dir, relative_path, text, events=None):
+    """Create a test file of text, optionally blocking on event and notifying when done."""
+    if events and events.wait_on:
+        # wait, but timeout -- in case something goes wrong
+        events.wait_on.wait(5)
     filename = os.path.join(src_dir, relative_path)
     os.makedirs(os.path.dirname(filename), exist_ok=True)
     with open(filename, "w") as f:
         f.write(text)
+    if events and events.created:
+        # allow file change to be picked up by a filesystem observer
+        time.sleep(0.1)
+        events.created.set()
+        print("notified created")
 
 
 def assert_file_contains(filename, text):
@@ -110,7 +120,15 @@ def test_replicate_all_files(local_tar):
         assert_file_contains(os.path.join(src_dir, "b/c.txt"), "goodbye")
 
 
-def test_detect_and_copy_new_file(local_tar):
+EventPair = namedtuple("EventPair", ["wait_on", "created"])
+
+
+@pytest.fixture
+def delay_events():
+    return EventPair(threading.Event(), threading.Event())
+
+
+def test_detect_and_copy_new_file(local_tar, delay_events):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
 
@@ -118,7 +136,10 @@ def test_detect_and_copy_new_file(local_tar):
         make_test_file(src_dir, "a.txt", "hello")
 
         # Make another file in a short while (after the watcher has started).
-        timer = threading.Timer(0.1, make_test_file, args=(src_dir, "b.txt", "goodbye"))
+        delayed_t = threading.Thread(
+            target=make_test_file, args=(src_dir, "b.txt", "goodbye", delay_events)
+        )
+        delayed_t.start()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -128,12 +149,19 @@ def test_detect_and_copy_new_file(local_tar):
 
         # Watch for changes and copy files, and stop after short while of inactvitiy.
         # The second file (see above) should be created during this internval.
+        print("before repl")
         with make_file_replicator(
             local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
         ) as copy_file:
             replicate_files_on_change(
-                src_dir, copy_file, timeout=0.2, notify_observer_up=timer.start
+                src_dir,
+                copy_file,
+                observer_up_event=delay_events.wait_on,
+                terminate_event=delay_events.created,
+                debugging=True,
             )
+        delayed_t.join()
+        print("after repl")
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -144,10 +172,8 @@ def test_detect_and_copy_new_file(local_tar):
         # Double check that contents is correct too.
         assert_file_contains(os.path.join(dest_parent_dir, "test/b.txt"), "goodbye")
 
-        timer.join()
 
-
-def test_detect_and_copy_modified_file(local_tar):
+def test_detect_and_copy_modified_file(local_tar, delay_events):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
 
@@ -155,9 +181,10 @@ def test_detect_and_copy_modified_file(local_tar):
         make_test_file(src_dir, "a.txt", "hello")
 
         # Change that file in a short while (after the watcher has started).
-        timer = threading.Timer(
-            0.1, make_test_file, args=(src_dir, "a.txt", "hello again")
+        delayed_t = threading.Thread(
+            target=make_test_file, args=(src_dir, "a.txt", "hello again", delay_events)
         )
+        delayed_t.start()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -169,8 +196,13 @@ def test_detect_and_copy_modified_file(local_tar):
             local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
         ) as copy_file:
             replicate_files_on_change(
-                src_dir, copy_file, timeout=0.2, notify_observer_up=timer.start
+                src_dir,
+                copy_file,
+                observer_up_event=delay_events.wait_on,
+                terminate_event=delay_events.created,
+                debugging=True,
             )
+        delayed_t.join()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -180,7 +212,7 @@ def test_detect_and_copy_modified_file(local_tar):
         assert_file_contains(os.path.join(dest_parent_dir, "test/a.txt"), "hello again")
 
 
-def test_detect_and_copy_new_file_in_new_directories(local_tar):
+def test_detect_and_copy_new_file_in_new_directories(local_tar, delay_events):
     with temp_directory() as src_parent_dir, temp_directory() as dest_parent_dir:
         src_dir = os.path.join(src_parent_dir, "test")
 
@@ -188,9 +220,11 @@ def test_detect_and_copy_new_file_in_new_directories(local_tar):
         make_test_file(src_dir, "a.txt", "hello")
 
         # Create a new file in nested new directories in a short while (after the watcher has started).
-        timer = threading.Timer(
-            0.1, make_test_file, args=(src_dir, "a/b/c/d/e/a.txt", "hello again")
+        delayed_t = threading.Thread(
+            target=make_test_file,
+            args=(src_dir, "a/b/c/d/e/a.txt", "hello again", delay_events),
         )
+        delayed_t.start()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
@@ -204,8 +238,13 @@ def test_detect_and_copy_new_file_in_new_directories(local_tar):
             local_tar, local_tar, src_dir, dest_parent_dir, ("bash",)
         ) as copy_file:
             replicate_files_on_change(
-                src_dir, copy_file, timeout=0.2, notify_observer_up=timer.start
+                src_dir,
+                copy_file,
+                observer_up_event=delay_events.wait_on,
+                terminate_event=delay_events.created,
+                debugging=True,
             )
+        delayed_t.join()
 
         # Confirm we have the files we expect.
         assert os.path.exists(os.path.join(src_dir, "a.txt"))
